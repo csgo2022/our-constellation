@@ -12,23 +12,60 @@ window.App = window.App || {};
 
     var coupleId = await App.auth.getCoupleId(userId);
 
-    // 如果用户没有 couple（之前注册时被中断），自动创建
+    // 用户还没有 couple
     if (!coupleId) {
-      var code = App.auth.generateInviteCode();
-      var coupleResult = await supabase
-        .from('couples')
-        .insert({ invite_code: code })
-        .select()
-        .single();
+      var pendingInvite = window.App._pendingInviteCode;
 
-      if (coupleResult.error) throw coupleResult.error;
-      coupleId = coupleResult.data.id;
+      if (pendingInvite) {
+        // 有邀请码：加入已有 couple
+        var joinResult = await supabase
+          .from('couples')
+          .select('id')
+          .eq('invite_code', pendingInvite)
+          .limit(1);
 
-      var memberResult = await supabase
-        .from('couple_members')
-        .insert({ couple_id: coupleId, user_id: userId });
+        if (joinResult.error || !joinResult.data || joinResult.data.length === 0) {
+          console.error('邀请码无效，将创建新星空');
+          // 邀请码无效，走创建流程
+        } else {
+          coupleId = joinResult.data[0].id;
+          var memberResult = await supabase
+            .from('couple_members')
+            .insert({ couple_id: coupleId, user_id: userId });
 
-      if (memberResult.error) throw memberResult.error;
+          if (memberResult.error) {
+            console.error('加入 couple 失败:', memberResult.error);
+            coupleId = null;
+          }
+        }
+        window.App._pendingInviteCode = null;
+      }
+
+      // 如果还没有 coupleId，创建新的
+      if (!coupleId) {
+        var code = App.auth.generateInviteCode();
+        var coupleResult = await supabase
+          .from('couples')
+          .insert({ invite_code: code })
+          .select()
+          .single();
+
+        if (coupleResult.error) {
+          console.error('创建 couple 失败:', coupleResult.error);
+          throw coupleResult.error;
+        }
+
+        coupleId = coupleResult.data.id;
+
+        var memberResult = await supabase
+          .from('couple_members')
+          .insert({ couple_id: coupleId, user_id: userId });
+
+        if (memberResult.error) {
+          console.error('加入 couple 失败:', memberResult.error);
+          throw memberResult.error;
+        }
+      }
     }
 
     var memories = await App.memories.fetchMemories(coupleId);

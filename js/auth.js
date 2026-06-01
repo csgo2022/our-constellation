@@ -113,92 +113,24 @@ window.App = window.App || {};
     submitBtn.disabled = true;
     submitBtn.textContent = '注册中...';
 
+    // 必须在 signUp 之前设，因为 onAuthStateChange 在 signUp 内部就触发
+    window.App._pendingInviteCode = inviteCode || null;
+
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
 
     if (authError) {
       submitBtn.disabled = false;
       submitBtn.textContent = '注册';
       errorEl.textContent = authError.message;
+      window.App._pendingInviteCode = null;
       return;
     }
 
-    const userId = authData.user.id;
-
-    if (inviteCode) {
-      const { data: couples, error: coupleError } = await supabase
-        .from('couples')
-        .select('id')
-        .eq('invite_code', inviteCode)
-        .limit(1);
-
-      if (coupleError || !couples || couples.length === 0) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = '注册';
-        errorEl.textContent = '邀请码无效，请确认后重试';
-        return;
-      }
-
-      const coupleId = couples[0].id;
-
-      const { error: memberError } = await supabase
-        .from('couple_members')
-        .insert({ couple_id: coupleId, user_id: userId });
-
-      if (memberError) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = '注册';
-        errorEl.textContent = '加入失败：' + memberError.message;
-        return;
-      }
-    } else {
-      const code = generateInviteCode();
-
-      const { data: coupleData, error: createError } = await supabase
-        .from('couples')
-        .insert({ invite_code: code })
-        .select()
-        .single();
-
-      if (createError) {
-        if (createError.message.includes('invite_code')) {
-          const retryCode = generateInviteCode();
-          const { data: coupleData2, error: createError2 } = await supabase
-            .from('couples')
-            .insert({ invite_code: retryCode })
-            .select()
-            .single();
-
-          if (createError2) {
-            submitBtn.disabled = false;
-            submitBtn.textContent = '注册';
-            errorEl.textContent = '创建失败：' + createError2.message;
-            return;
-          }
-
-          await supabase.from('couple_members').insert({
-            couple_id: coupleData2.id,
-            user_id: userId
-          });
-          window.App._currentInviteCode = retryCode;
-          window.App._currentCoupleId = coupleData2.id;
-        } else {
-          submitBtn.disabled = false;
-          submitBtn.textContent = '注册';
-          errorEl.textContent = '创建失败：' + createError.message;
-          return;
-        }
-      } else {
-        await supabase.from('couple_members').insert({
-          couple_id: coupleData.id,
-          user_id: userId
-        });
-        window.App._currentInviteCode = code;
-        window.App._currentCoupleId = coupleData.id;
-      }
-    }
+    // 暂存邀请码，由 loadMemories 统一处理 couple 创建/加入
+    window.App._pendingInviteCode = inviteCode || null;
 
     submitBtn.disabled = false;
-    submitBtn.textContent = '注册';
+    submitBtn.textContent = '注册成功';
   }
 
   async function handleLogout() {
