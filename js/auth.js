@@ -202,7 +202,18 @@ window.App = window.App || {};
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    // 先更新 UI，再调 API
+    document.getElementById('authView').classList.remove('hidden');
+    document.getElementById('mainView').classList.add('hidden');
+    document.getElementById('settingsPanel').classList.add('hidden');
+    showLogin();
+
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('退出登录失败:', e);
+      // API 调用失败也不影响本地退出
+    }
   }
 
   async function getCoupleId(userId) {
