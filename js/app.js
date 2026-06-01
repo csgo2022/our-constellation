@@ -14,7 +14,7 @@ window.App = window.App || {};
     return result.count || 0;
   }
 
-  // 确保用户有 couple（创建或加入）
+  // 确保用户有 couple（创建或加入），带重试
   async function ensureCouple(userId) {
     var coupleId = await App.auth.getCoupleId(userId);
     if (coupleId) return coupleId;
@@ -30,9 +30,7 @@ window.App = window.App || {};
 
       if (joinResult.data && joinResult.data.length > 0) {
         coupleId = joinResult.data[0].id;
-        await supabase
-          .from('couple_members')
-          .insert({ couple_id: coupleId, user_id: userId });
+        await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
       }
       window.App._pendingInviteCode = null;
     }
@@ -45,32 +43,54 @@ window.App = window.App || {};
         .select()
         .single();
 
-      if (coupleResult.error) throw coupleResult.error;
-      coupleId = coupleResult.data.id;
+      if (coupleResult.error) {
+        // 重试一次（邀请码冲突）
+        if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
+          code = App.auth.generateInviteCode();
+          coupleResult = await supabase
+            .from('couples')
+            .insert({ invite_code: code })
+            .select()
+            .single();
 
-      await supabase
-        .from('couple_members')
-        .insert({ couple_id: coupleId, user_id: userId });
+          if (coupleResult.error) throw new Error('创建星空失败，请重试');
+        } else {
+          throw new Error('创建星空失败：' + coupleResult.error.message);
+        }
+      }
+
+      coupleId = coupleResult.data.id;
+      await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
     }
 
     return coupleId;
   }
 
+  // 带重试的插入
+  async function safeInsert(table, row, retries) {
+    retries = retries || 3;
+    for (var i = 0; i < retries; i++) {
+      var result = await supabase.from(table).insert(row);
+      if (!result.error) return;
+      // 等待后重试
+      await new Promise(function(r) { setTimeout(r, 1000); });
+    }
+    throw new Error('数据库写入失败，请检查网络后重试');
+  }
+
   async function loadMemories() {
     var userResult = await supabase.auth.getUser();
     var userId = userResult.data.user ? userResult.data.user.id : null;
-    if (!userId) return;
+    if (!userId) throw new Error('未登录');
 
     var coupleId = await ensureCouple(userId);
-    if (!coupleId) return;
+    if (!coupleId) throw new Error('未能获取星空');
 
     var count = await getMemberCount(coupleId);
 
     if (count < 2) {
-      // 一个人，显示等待伴侣页面
       showWaitingView(coupleId);
     } else {
-      // 两个人，进入星空
       var memories = await App.memories.fetchMemories(coupleId);
       App.ui.renderMemoryStars(memories);
       showMainView();
@@ -78,7 +98,6 @@ window.App = window.App || {};
     }
   }
 
-  // 显示等待伴侣页面
   async function showWaitingView(coupleId) {
     document.getElementById('authView').classList.add('hidden');
     document.getElementById('mainView').classList.add('hidden');
@@ -89,7 +108,6 @@ window.App = window.App || {};
     document.getElementById('waitingInviteCode').textContent = code;
   }
 
-  // 显示星空主页
   function showMainView() {
     document.getElementById('authView').classList.add('hidden');
     document.getElementById('waitingView').classList.add('hidden');
@@ -100,12 +118,20 @@ window.App = window.App || {};
   window.App.loadMemories = loadMemories;
 
   async function enterMainView() {
+    // 先隐藏登录页和等待页
+    document.getElementById('authView').classList.add('hidden');
+    document.getElementById('waitingView').classList.add('hidden');
     document.getElementById('loadingOverlay').classList.remove('hidden');
 
     try {
       await loadMemories();
     } catch (err) {
-      console.error('加载记忆失败:', err);
+      // 加载失败，显示错误信息并回到登录页
+      alert('加载失败：' + (err.message || '未知错误'));
+      document.getElementById('authView').classList.remove('hidden');
+      document.getElementById('mainView').classList.add('hidden');
+      document.getElementById('waitingView').classList.add('hidden');
+      App.auth.showLogin();
     } finally {
       document.getElementById('loadingOverlay').classList.add('hidden');
     }
@@ -155,7 +181,6 @@ window.App = window.App || {};
       }
     });
 
-    // 等待页：检查伴侣是否已加入
     document.getElementById('checkPartnerBtn').addEventListener('click', function() {
       document.getElementById('loadingOverlay').classList.remove('hidden');
       loadMemories().finally(function() {
@@ -163,7 +188,6 @@ window.App = window.App || {};
       });
     });
 
-    // 等待页：退出登录
     document.getElementById('waitingLogoutBtn').addEventListener('click', function() {
       App.auth.handleLogout();
     });
