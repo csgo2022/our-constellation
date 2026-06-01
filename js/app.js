@@ -11,7 +11,25 @@ window.App = window.App || {};
     if (!userId) return;
 
     var coupleId = await App.auth.getCoupleId(userId);
-    if (!coupleId) return;
+
+    // 如果用户没有 couple（之前注册时被中断），自动创建
+    if (!coupleId) {
+      var code = App.auth.generateInviteCode();
+      var coupleResult = await supabase
+        .from('couples')
+        .insert({ invite_code: code })
+        .select()
+        .single();
+
+      if (coupleResult.error) throw coupleResult.error;
+      coupleId = coupleResult.data.id;
+
+      var memberResult = await supabase
+        .from('couple_members')
+        .insert({ couple_id: coupleId, user_id: userId });
+
+      if (memberResult.error) throw memberResult.error;
+    }
 
     var memories = await App.memories.fetchMemories(coupleId);
     App.ui.renderMemoryStars(memories);
