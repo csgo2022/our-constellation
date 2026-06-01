@@ -18,6 +18,24 @@
     <div id="authForm"></div>
   </div>
 
+  <!-- 等待伴侣视图 -->
+  <div id="waitingView" class="auth-view hidden">
+    <div class="auth-card">
+      <h1>OUR CONSTELLATION</h1>
+      <p class="subtitle">星空已经为你准备好了</p>
+      <div style="margin:20px 0;">
+        <p style="font-size:13px;color:#94a3b8;margin-bottom:12px;">将邀请码发给你的另一半</p>
+        <div class="invite-box" style="margin-bottom:8px;">
+          <div class="label">邀请码</div>
+          <div class="code" id="waitingInviteCode">------</div>
+        </div>
+        <p style="font-size:11px;color:#64748b;margin-top:8px;">对方注册时输入此邀请码，即可加入你的星空</p>
+      </div>
+      <button id="checkPartnerBtn" class="auth-btn" style="margin-bottom:12px;">检查另一半是否已加入</button>
+      <button id="waitingLogoutBtn" class="logout-btn">退出登录</button>
+    </div>
+  </div>
+
   <!-- 主视图 -->
   <div id="mainView" class="hidden">
     <canvas id="starfield"></canvas>

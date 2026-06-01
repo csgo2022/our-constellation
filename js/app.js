@@ -5,79 +5,101 @@ window.App = window.App || {};
 
   var supabase = window.App.supabase;
 
+  // 检查 couple 里有多少人
+  async function getMemberCount(coupleId) {
+    var result = await supabase
+      .from('couple_members')
+      .select('id', { count: 'exact' })
+      .eq('couple_id', coupleId);
+    return result.count || 0;
+  }
+
+  // 确保用户有 couple（创建或加入）
+  async function ensureCouple(userId) {
+    var coupleId = await App.auth.getCoupleId(userId);
+    if (coupleId) return coupleId;
+
+    var pendingInvite = window.App._pendingInviteCode;
+
+    if (pendingInvite) {
+      var joinResult = await supabase
+        .from('couples')
+        .select('id')
+        .eq('invite_code', pendingInvite)
+        .limit(1);
+
+      if (joinResult.data && joinResult.data.length > 0) {
+        coupleId = joinResult.data[0].id;
+        await supabase
+          .from('couple_members')
+          .insert({ couple_id: coupleId, user_id: userId });
+      }
+      window.App._pendingInviteCode = null;
+    }
+
+    if (!coupleId) {
+      var code = App.auth.generateInviteCode();
+      var coupleResult = await supabase
+        .from('couples')
+        .insert({ invite_code: code })
+        .select()
+        .single();
+
+      if (coupleResult.error) throw coupleResult.error;
+      coupleId = coupleResult.data.id;
+
+      await supabase
+        .from('couple_members')
+        .insert({ couple_id: coupleId, user_id: userId });
+    }
+
+    return coupleId;
+  }
+
   async function loadMemories() {
     var userResult = await supabase.auth.getUser();
     var userId = userResult.data.user ? userResult.data.user.id : null;
     if (!userId) return;
 
-    var coupleId = await App.auth.getCoupleId(userId);
+    var coupleId = await ensureCouple(userId);
+    if (!coupleId) return;
 
-    // 用户还没有 couple
-    if (!coupleId) {
-      var pendingInvite = window.App._pendingInviteCode;
+    var count = await getMemberCount(coupleId);
 
-      if (pendingInvite) {
-        // 有邀请码：加入已有 couple
-        var joinResult = await supabase
-          .from('couples')
-          .select('id')
-          .eq('invite_code', pendingInvite)
-          .limit(1);
-
-        if (joinResult.error || !joinResult.data || joinResult.data.length === 0) {
-          console.error('邀请码无效，将创建新星空');
-          // 邀请码无效，走创建流程
-        } else {
-          coupleId = joinResult.data[0].id;
-          var memberResult = await supabase
-            .from('couple_members')
-            .insert({ couple_id: coupleId, user_id: userId });
-
-          if (memberResult.error) {
-            console.error('加入 couple 失败:', memberResult.error);
-            coupleId = null;
-          }
-        }
-        window.App._pendingInviteCode = null;
-      }
-
-      // 如果还没有 coupleId，创建新的
-      if (!coupleId) {
-        var code = App.auth.generateInviteCode();
-        var coupleResult = await supabase
-          .from('couples')
-          .insert({ invite_code: code })
-          .select()
-          .single();
-
-        if (coupleResult.error) {
-          console.error('创建 couple 失败:', coupleResult.error);
-          throw coupleResult.error;
-        }
-
-        coupleId = coupleResult.data.id;
-
-        var memberResult = await supabase
-          .from('couple_members')
-          .insert({ couple_id: coupleId, user_id: userId });
-
-        if (memberResult.error) {
-          console.error('加入 couple 失败:', memberResult.error);
-          throw memberResult.error;
-        }
-      }
+    if (count < 2) {
+      // 一个人，显示等待伴侣页面
+      showWaitingView(coupleId);
+    } else {
+      // 两个人，进入星空
+      var memories = await App.memories.fetchMemories(coupleId);
+      App.ui.renderMemoryStars(memories);
+      showMainView();
+      await App.ui.updateInviteCode();
     }
+  }
 
-    var memories = await App.memories.fetchMemories(coupleId);
-    App.ui.renderMemoryStars(memories);
-    await App.ui.updateInviteCode();
+  // 显示等待伴侣页面
+  async function showWaitingView(coupleId) {
+    document.getElementById('authView').classList.add('hidden');
+    document.getElementById('mainView').classList.add('hidden');
+    document.getElementById('waitingView').classList.remove('hidden');
+    document.getElementById('loadingOverlay').classList.add('hidden');
+
+    var code = await App.auth.getInviteCode(coupleId);
+    document.getElementById('waitingInviteCode').textContent = code;
+  }
+
+  // 显示星空主页
+  function showMainView() {
+    document.getElementById('authView').classList.add('hidden');
+    document.getElementById('waitingView').classList.add('hidden');
+    document.getElementById('mainView').classList.remove('hidden');
+    document.getElementById('loadingOverlay').classList.add('hidden');
   }
 
   window.App.loadMemories = loadMemories;
 
   async function enterMainView() {
-    document.getElementById('authView').classList.add('hidden');
-    document.getElementById('mainView').classList.remove('hidden');
     document.getElementById('loadingOverlay').classList.remove('hidden');
 
     try {
@@ -96,6 +118,7 @@ window.App = window.App || {};
       }
     } else if (event === 'SIGNED_OUT') {
       document.getElementById('authView').classList.remove('hidden');
+      document.getElementById('waitingView').classList.add('hidden');
       document.getElementById('mainView').classList.add('hidden');
       App.auth.showLogin();
     }
@@ -130,6 +153,19 @@ window.App = window.App || {};
       if (confirm('确定要退出登录吗？')) {
         App.auth.handleLogout();
       }
+    });
+
+    // 等待页：检查伴侣是否已加入
+    document.getElementById('checkPartnerBtn').addEventListener('click', function() {
+      document.getElementById('loadingOverlay').classList.remove('hidden');
+      loadMemories().finally(function() {
+        document.getElementById('loadingOverlay').classList.add('hidden');
+      });
+    });
+
+    // 等待页：退出登录
+    document.getElementById('waitingLogoutBtn').addEventListener('click', function() {
+      App.auth.handleLogout();
     });
 
     document.getElementById('starImage').addEventListener('change', App.ui.handleFileSelect);
