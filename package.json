@@ -1,0 +1,7 @@
+{
+  "name": "our-constellation",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.2"
+  }
+}
