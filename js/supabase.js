@@ -145,6 +145,11 @@ var rest = {
   // 获取公开 URL
   getPublicUrl: function(bucket, filePath) {
     return SUPABASE_URL + '/storage/v1/object/public/' + bucket + '/' + filePath;
+  },
+
+  // 调用 RPC 函数（rpc('create_couple', { invite_code: 'xxx' })）
+  rpc: async function(fnName, params) {
+    return restFetch('POST', 'rpc/' + fnName, null, params);
   }
 };
 

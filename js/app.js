@@ -29,16 +29,13 @@ window.App = window.App || {};
 
     if (pendingInvite) {
       console.log('[ensureCouple] 尝试加入已有星空...');
-      var joinResult = await rest.select('couples', {
-        select: 'id',
-        invite_code: pendingInvite,
-        limit: '1'
-      });
+      var joinResult = await rest.rpc('join_couple', { p_invite_code: pendingInvite });
 
-      if (joinResult.data && joinResult.data.length > 0) {
-        coupleId = joinResult.data[0].id;
-        console.log('[ensureCouple] 找到 couple:', coupleId);
-        await rest.insert('couple_members', { couple_id: coupleId, user_id: userId });
+      if (!joinResult.error && joinResult.data && joinResult.data.length > 0) {
+        coupleId = joinResult.data[0].couple_id;
+        console.log('[ensureCouple] 加入成功, coupleId:', coupleId);
+      } else if (joinResult.error) {
+        console.warn('[ensureCouple] 加入失败:', joinResult.error.message);
       }
       window.App._pendingInviteCode = null;
     }
@@ -47,14 +44,14 @@ window.App = window.App || {};
       var code = App.auth.generateInviteCode();
       console.log('[ensureCouple] 创建新星空, code:', code);
 
-      var coupleResult = await rest.insert('couples', { invite_code: code });
+      var coupleResult = await rest.rpc('create_couple', { invite_code: code });
 
-      console.log('[ensureCouple] insert couples 结果:', coupleResult.error ? coupleResult.error.message : '成功');
+      console.log('[ensureCouple] RPC create_couple 结果:', coupleResult.error ? coupleResult.error.message : '成功');
 
       if (coupleResult.error) {
         if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
           code = App.auth.generateInviteCode();
-          coupleResult = await rest.insert('couples', { invite_code: code });
+          coupleResult = await rest.rpc('create_couple', { invite_code: code });
           if (coupleResult.error) throw new Error('创建星空失败，请重试');
         } else {
           throw new Error('创建星空失败：' + coupleResult.error.message);
