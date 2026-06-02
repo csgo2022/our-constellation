@@ -4,6 +4,7 @@ window.App = window.App || {};
   'use strict';
 
   var rest = window.App.rest;
+  var supabase = window.App.supabase;
 
   // 检查 couple 里有多少人
   async function getMemberCount(coupleId) {
