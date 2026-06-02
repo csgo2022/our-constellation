@@ -84,13 +84,28 @@ window.App = window.App || {};
 
     if (star.image_url) {
       var img = document.getElementById('polaroidImg');
+      var loadTimer = null;
       imgLoader.classList.remove('hidden');
+      console.log('[showPolaroid] 加载图片:', star.image_url);
       img.src = star.image_url;
-      img.onload = function() { imgLoader.classList.add('hidden'); };
+      img.onload = function() {
+        clearTimeout(loadTimer);
+        imgLoader.classList.add('hidden');
+        console.log('[showPolaroid] 图片加载成功');
+      };
       img.onerror = function() {
+        clearTimeout(loadTimer);
         imgLoader.classList.add('hidden');
         img.src = '';
+        console.log('[showPolaroid] 图片加载失败');
       };
+      loadTimer = setTimeout(function() {
+        console.log('[showPolaroid] 图片加载超时');
+        img.onerror = null;
+        img.onload = null;
+        imgLoader.classList.add('hidden');
+        img.src = '';
+      }, 10000);
       img.style.display = '';
     } else {
       imgLoader.classList.add('hidden');
