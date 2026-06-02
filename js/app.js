@@ -9,7 +9,7 @@ window.App = window.App || {};
   // 检查 couple 里有多少人（通过 RPC 绕过 RLS，避免策略递归）
   async function getMemberCount(coupleId) {
     var result = await rest.rpc('get_member_count', { p_couple_id: coupleId });
-    console.log('[getMemberCount] 结果:', result);
+    console.log('[getMemberCount] result:', result, 'data:', result.data, 'error:', result.error);
     return (result.data !== null && result.data !== undefined) ? result.data : 0;
   }
 
