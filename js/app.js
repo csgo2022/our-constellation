@@ -4,6 +4,7 @@ window.App = window.App || {};
   'use strict';
 
   var supabase = window.App.supabase;
+  var currentUserId = null;
 
   // 检查 couple 里有多少人
   async function getMemberCount(coupleId) {
@@ -90,13 +91,9 @@ window.App = window.App || {};
     throw new Error('数据库写入失败，请检查网络后重试');
   }
 
-  async function loadMemories() {
-    console.log('[loadMemories] 开始');
-
-    var userResult = await supabase.auth.getUser();
-    console.log('[loadMemories] getUser:', userResult.data.user ? '已登录' : '未登录');
-
-    var userId = userResult.data.user ? userResult.data.user.id : null;
+  async function loadMemories(userId) {
+    userId = userId || currentUserId;
+    console.log('[loadMemories] 开始, userId=', userId);
     if (!userId) throw new Error('未登录');
 
     var coupleId = await ensureCouple(userId);
@@ -137,8 +134,9 @@ window.App = window.App || {};
 
   window.App.loadMemories = loadMemories;
 
-  async function enterMainView() {
-    console.log('[enterMainView] 开始');
+  async function enterMainView(userId) {
+    currentUserId = userId;
+    console.log('[enterMainView] 开始, userId=', userId);
     document.getElementById('authView').classList.add('hidden');
     document.getElementById('waitingView').classList.add('hidden');
     document.getElementById('loadingOverlay').classList.remove('hidden');
@@ -146,7 +144,7 @@ window.App = window.App || {};
     try {
       // 15 秒兜底超时
       await Promise.race([
-        loadMemories(),
+        loadMemories(userId),
         new Promise(function(_, reject) {
           setTimeout(function() { reject(new Error('加载超时，请检查网络连接')); }, 15000);
         })
@@ -166,8 +164,8 @@ window.App = window.App || {};
   supabase.auth.onAuthStateChange(function(event, session) {
     console.log('[onAuthStateChange] event:', event, 'session:', !!session);
     if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-      if (session) {
-        enterMainView();
+      if (session && session.user) {
+        enterMainView(session.user.id);
       }
     } else if (event === 'SIGNED_OUT') {
       document.getElementById('authView').classList.remove('hidden');
@@ -208,11 +206,17 @@ window.App = window.App || {};
       }
     });
 
-    document.getElementById('checkPartnerBtn').addEventListener('click', function() {
+    document.getElementById('checkPartnerBtn').addEventListener('click', async function() {
       document.getElementById('loadingOverlay').classList.remove('hidden');
-      loadMemories().finally(function() {
+      try {
+        var session = await supabase.auth.getSession();
+        var userId = session.data.session ? session.data.session.user.id : null;
+        if (userId) {
+          await loadMemories(userId);
+        }
+      } finally {
         document.getElementById('loadingOverlay').classList.add('hidden');
-      });
+      }
     });
 
     document.getElementById('waitingLogoutBtn').addEventListener('click', function() {
