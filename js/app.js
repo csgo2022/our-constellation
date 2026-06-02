@@ -31,13 +31,16 @@ window.App = window.App || {};
       console.log('[ensureCouple] 尝试加入已有星空...');
       var joinResult = await rest.rpc('join_couple', { p_invite_code: pendingInvite });
 
+      window.App._pendingInviteCode = null;
+
       if (!joinResult.error && joinResult.data && joinResult.data.length > 0) {
         coupleId = joinResult.data[0].couple_id;
         console.log('[ensureCouple] 加入成功, coupleId:', coupleId);
-      } else if (joinResult.error) {
-        console.warn('[ensureCouple] 加入失败:', joinResult.error.message);
+      } else {
+        // 加入失败，直接抛错，不静默创建新星空
+        var msg = joinResult.error ? joinResult.error.message : '未知错误';
+        throw new Error('加入星空失败：' + (msg || '邀请码无效'));
       }
-      window.App._pendingInviteCode = null;
     }
 
     if (!coupleId) {
