@@ -5,17 +5,6 @@ window.App = window.App || {};
 
   var supabase = window.App.supabase;
 
-  // 带超时的 RPC 调用
-  async function rpcWithTimeout(fnName, params, ms) {
-    ms = ms || 8000;
-    return Promise.race([
-      supabase.rpc(fnName, params),
-      new Promise(function(_, reject) {
-        setTimeout(function() { reject(new Error('请求超时')); }, ms);
-      })
-    ]);
-  }
-
   // 检查 couple 里有多少人
   async function getMemberCount(coupleId) {
     var result = await supabase
@@ -27,75 +16,63 @@ window.App = window.App || {};
 
   // 确保用户有 couple（创建或加入），带重试
   async function ensureCouple(userId) {
+    console.log('[ensureCouple] 开始, userId=', userId);
+
     var coupleId = await App.auth.getCoupleId(userId);
+    console.log('[ensureCouple] getCoupleId 返回:', coupleId);
     if (coupleId) return coupleId;
 
     var pendingInvite = window.App._pendingInviteCode;
+    console.log('[ensureCouple] pendingInvite:', pendingInvite);
 
     if (pendingInvite) {
-      // 优先用 RPC 加入
-      try {
-        var joinResult = await rpcWithTimeout('join_couple', { p_invite_code: pendingInvite });
-        if (!joinResult.error && joinResult.data && joinResult.data.length > 0) {
-          coupleId = joinResult.data[0].couple_id;
-        }
-      } catch (e) {
-        // RPC 失败，回退到直插
-        var joinQuery = await supabase
-          .from('couples')
-          .select('id')
-          .eq('invite_code', pendingInvite)
-          .limit(1);
-        if (joinQuery.data && joinQuery.data.length > 0) {
-          coupleId = joinQuery.data[0].id;
-          await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
-        }
+      console.log('[ensureCouple] 尝试加入已有星空...');
+      var joinResult = await supabase
+        .from('couples')
+        .select('id')
+        .eq('invite_code', pendingInvite)
+        .limit(1);
+
+      if (joinResult.data && joinResult.data.length > 0) {
+        coupleId = joinResult.data[0].id;
+        console.log('[ensureCouple] 找到 couple:', coupleId);
+        await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
       }
       window.App._pendingInviteCode = null;
     }
 
     if (!coupleId) {
       var code = App.auth.generateInviteCode();
+      console.log('[ensureCouple] 创建新星空, code:', code);
 
-      // 先尝试 RPC
-      var coupleResult = null;
-      try {
-        coupleResult = await rpcWithTimeout('create_couple', { invite_code: code });
-      } catch (e) {
-        // RPC 失败，回退到直插
-      }
+      var coupleResult = await supabase
+        .from('couples')
+        .insert({ invite_code: code })
+        .select()
+        .single();
 
-      // RPC 成功
-      if (coupleResult && !coupleResult.error && coupleResult.data && coupleResult.data.length > 0) {
-        coupleId = coupleResult.data[0].id;
-      }
+      console.log('[ensureCouple] insert couples 结果:', coupleResult.error ? coupleResult.error.message : '成功');
 
-      // RPC 失败，回退到直插
-      if (!coupleId) {
-        coupleResult = await supabase
-          .from('couples')
-          .insert({ invite_code: code })
-          .select()
-          .single();
+      if (coupleResult.error) {
+        if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
+          code = App.auth.generateInviteCode();
+          coupleResult = await supabase
+            .from('couples')
+            .insert({ invite_code: code })
+            .select()
+            .single();
 
-        if (coupleResult.error) {
-          if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
-            code = App.auth.generateInviteCode();
-            coupleResult = await supabase
-              .from('couples')
-              .insert({ invite_code: code })
-              .select()
-              .single();
-
-            if (coupleResult.error) throw new Error('创建星空失败，请重试');
-          } else {
-            throw new Error('创建星空失败：' + coupleResult.error.message);
-          }
+          if (coupleResult.error) throw new Error('创建星空失败，请重试');
+        } else {
+          throw new Error('创建星空失败：' + coupleResult.error.message);
         }
-        coupleId = coupleResult.data.id;
       }
+
+      coupleId = coupleResult.data.id;
+      console.log('[ensureCouple] 新 coupleId:', coupleId);
 
       await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
+      console.log('[ensureCouple] 成员关系已创建');
     }
 
     return coupleId;
@@ -107,20 +84,28 @@ window.App = window.App || {};
     for (var i = 0; i < retries; i++) {
       var result = await supabase.from(table).insert(row);
       if (!result.error) return;
+      console.warn('[safeInsert] 第' + (i+1) + '次失败:', result.error.message);
       await new Promise(function(r) { setTimeout(r, 1000); });
     }
     throw new Error('数据库写入失败，请检查网络后重试');
   }
 
   async function loadMemories() {
+    console.log('[loadMemories] 开始');
+
     var userResult = await supabase.auth.getUser();
+    console.log('[loadMemories] getUser:', userResult.data.user ? '已登录' : '未登录');
+
     var userId = userResult.data.user ? userResult.data.user.id : null;
     if (!userId) throw new Error('未登录');
 
     var coupleId = await ensureCouple(userId);
     if (!coupleId) throw new Error('未能获取星空');
 
+    console.log('[loadMemories] coupleId:', coupleId);
+
     var count = await getMemberCount(coupleId);
+    console.log('[loadMemories] 成员数:', count);
 
     if (count < 2) {
       showWaitingView(coupleId);
@@ -130,6 +115,7 @@ window.App = window.App || {};
       showMainView();
       await App.ui.updateInviteCode();
     }
+    console.log('[loadMemories] 完成');
   }
 
   async function showWaitingView(coupleId) {
@@ -152,14 +138,21 @@ window.App = window.App || {};
   window.App.loadMemories = loadMemories;
 
   async function enterMainView() {
+    console.log('[enterMainView] 开始');
     document.getElementById('authView').classList.add('hidden');
     document.getElementById('waitingView').classList.add('hidden');
     document.getElementById('loadingOverlay').classList.remove('hidden');
 
     try {
-      await loadMemories();
+      // 15 秒兜底超时
+      await Promise.race([
+        loadMemories(),
+        new Promise(function(_, reject) {
+          setTimeout(function() { reject(new Error('加载超时，请检查网络连接')); }, 15000);
+        })
+      ]);
     } catch (err) {
-      console.error('loadMemories 失败:', err);
+      console.error('[enterMainView] 失败:', err.message);
       alert('加载失败：' + (err.message || '未知错误'));
       document.getElementById('authView').classList.remove('hidden');
       document.getElementById('mainView').classList.add('hidden');
@@ -171,6 +164,7 @@ window.App = window.App || {};
   }
 
   supabase.auth.onAuthStateChange(function(event, session) {
+    console.log('[onAuthStateChange] event:', event, 'session:', !!session);
     if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
       if (session) {
         enterMainView();
