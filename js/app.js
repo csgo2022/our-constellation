@@ -22,36 +22,23 @@ window.App = window.App || {};
     var pendingInvite = window.App._pendingInviteCode;
 
     if (pendingInvite) {
-      var joinResult = await supabase
-        .from('couples')
-        .select('id')
-        .eq('invite_code', pendingInvite)
-        .limit(1);
+      var joinResult = await supabase.rpc('join_couple', { p_invite_code: pendingInvite });
 
-      if (joinResult.data && joinResult.data.length > 0) {
-        coupleId = joinResult.data[0].id;
-        await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
+      if (!joinResult.error && joinResult.data && joinResult.data.length > 0) {
+        coupleId = joinResult.data[0].couple_id;
       }
       window.App._pendingInviteCode = null;
     }
 
     if (!coupleId) {
       var code = App.auth.generateInviteCode();
-      var coupleResult = await supabase
-        .from('couples')
-        .insert({ invite_code: code })
-        .select()
-        .single();
+      var coupleResult = await supabase.rpc('create_couple', { invite_code: code });
 
       if (coupleResult.error) {
         // 重试一次（邀请码冲突）
         if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
           code = App.auth.generateInviteCode();
-          coupleResult = await supabase
-            .from('couples')
-            .insert({ invite_code: code })
-            .select()
-            .single();
+          coupleResult = await supabase.rpc('create_couple', { invite_code: code });
 
           if (coupleResult.error) throw new Error('创建星空失败，请重试');
         } else {
@@ -59,7 +46,7 @@ window.App = window.App || {};
         }
       }
 
-      coupleId = coupleResult.data.id;
+      coupleId = coupleResult.data[0].id;
       await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
     }
 

@@ -1,18 +1,18 @@
 -- Our Constellation 数据库初始化 SQL
--- 在 Supabase SQL Editor 中粘贴并运行此文件
+-- 可重复运行，不会因对象已存在而报错
 
 -- 开启 UUID 扩展
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 情侣配对表
-CREATE TABLE couples (
+-- ===== 建表 =====
+
+CREATE TABLE IF NOT EXISTS couples (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   invite_code TEXT UNIQUE NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 情侣成员表
-CREATE TABLE couple_members (
+CREATE TABLE IF NOT EXISTS couple_members (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   couple_id UUID NOT NULL REFERENCES couples(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -20,8 +20,7 @@ CREATE TABLE couple_members (
   UNIQUE(couple_id, user_id)
 );
 
--- 记忆表
-CREATE TABLE memories (
+CREATE TABLE IF NOT EXISTS memories (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   couple_id UUID NOT NULL REFERENCES couples(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
@@ -42,56 +41,89 @@ ALTER TABLE couples ENABLE ROW LEVEL SECURITY;
 ALTER TABLE couple_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
 
--- couples: 用户只能查看自己所在的 couple
+-- couples
+DROP POLICY IF EXISTS "view_own_couple" ON couples;
 CREATE POLICY "view_own_couple" ON couples
   FOR SELECT USING (
     id IN (SELECT couple_id FROM couple_members WHERE user_id = auth.uid())
   );
 
--- couples: 允许注册时创建
+DROP POLICY IF EXISTS "insert_couple" ON couples;
 CREATE POLICY "insert_couple" ON couples
   FOR INSERT WITH CHECK (true);
 
--- couple_members: 查看自己的成员关系
+-- couple_members
+DROP POLICY IF EXISTS "view_own_membership" ON couple_members;
 CREATE POLICY "view_own_membership" ON couple_members
   FOR SELECT USING (user_id = auth.uid());
 
--- couple_members: 插入自己的成员关系
+DROP POLICY IF EXISTS "insert_membership" ON couple_members;
 CREATE POLICY "insert_membership" ON couple_members
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
--- memories: 查看自己 couple 的记忆
+-- memories
+DROP POLICY IF EXISTS "view_couple_memories" ON memories;
 CREATE POLICY "view_couple_memories" ON memories
   FOR SELECT USING (
     couple_id IN (SELECT couple_id FROM couple_members WHERE user_id = auth.uid())
   );
 
--- memories: 插入自己 couple 的记忆
+DROP POLICY IF EXISTS "insert_couple_memory" ON memories;
 CREATE POLICY "insert_couple_memory" ON memories
   FOR INSERT WITH CHECK (
     couple_id IN (SELECT couple_id FROM couple_members WHERE user_id = auth.uid())
   );
 
--- memories: 更新自己 couple 的记忆
+DROP POLICY IF EXISTS "update_couple_memory" ON memories;
 CREATE POLICY "update_couple_memory" ON memories
   FOR UPDATE USING (
     couple_id IN (SELECT couple_id FROM couple_members WHERE user_id = auth.uid())
   );
 
--- memories: 删除自己 couple 的记忆
+DROP POLICY IF EXISTS "delete_couple_memory" ON memories;
 CREATE POLICY "delete_couple_memory" ON memories
   FOR DELETE USING (
     couple_id IN (SELECT couple_id FROM couple_members WHERE user_id = auth.uid())
   );
 
 -- ===== Storage 安全策略 =====
--- 注意：以下两条在 Supabase Storage → memory-images bucket → Policies 中执行
--- 或者直接在 SQL Editor 中一起运行
 
+DROP POLICY IF EXISTS "view_memory_images" ON storage.objects;
 CREATE POLICY "view_memory_images" ON storage.objects
   FOR SELECT USING (bucket_id = 'memory-images');
 
+DROP POLICY IF EXISTS "upload_memory_images" ON storage.objects;
 CREATE POLICY "upload_memory_images" ON storage.objects
   FOR INSERT WITH CHECK (
     bucket_id = 'memory-images' AND auth.role() = 'authenticated'
   );
+
+-- ===== RPC 函数（SECURITY DEFINER 绕过 RLS，确保客户端能写入） =====
+
+CREATE OR REPLACE FUNCTION create_couple(invite_code TEXT)
+RETURNS SETOF public.couples
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = 'public'
+AS $$
+BEGIN
+  RETURN QUERY INSERT INTO public.couples (invite_code) VALUES (invite_code) RETURNING *;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION join_couple(p_invite_code TEXT)
+RETURNS SETOF public.couple_members
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = 'public'
+AS $$
+DECLARE
+  v_couple_id UUID;
+BEGIN
+  SELECT id INTO v_couple_id FROM public.couples WHERE invite_code = p_invite_code;
+  IF v_couple_id IS NULL THEN
+    RAISE EXCEPTION '无效的邀请码';
+  END IF;
+  RETURN QUERY INSERT INTO public.couple_members (couple_id, user_id) VALUES (v_couple_id, auth.uid()) RETURNING *;
+END;
+$$;
