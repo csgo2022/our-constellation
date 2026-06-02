@@ -3,73 +3,71 @@ window.App = window.App || {};
 (function() {
   'use strict';
 
-  const { supabase } = window.App;
+  var rest = window.App.rest;
 
   async function fetchMemories(coupleId) {
-    const { data, error } = await supabase
-      .from('memories')
-      .select('*')
-      .eq('couple_id', coupleId)
-      .order('date', { ascending: true });
+    var result = await rest.select('memories', {
+      select: '*',
+      couple_id: coupleId,
+      order: 'date.asc'
+    });
 
-    if (error) throw error;
-    return data || [];
+    if (result.error) throw result.error;
+    return result.data || [];
   }
 
   async function addMemory(coupleId, userId, memory) {
-    const { data, error } = await supabase
-      .from('memories')
-      .insert({
-        couple_id: coupleId,
-        created_by: userId,
-        title: memory.title,
-        story: memory.story,
-        date: memory.date,
-        image_url: memory.image_url || null,
-        image_path: memory.image_path || null,
-        x: memory.x,
-        y: memory.y
-      })
-      .select()
-      .single();
+    var result = await rest.insert('memories', {
+      couple_id: coupleId,
+      created_by: userId,
+      title: memory.title,
+      story: memory.story,
+      date: memory.date,
+      image_url: memory.image_url || null,
+      image_path: memory.image_path || null,
+      x: memory.x,
+      y: memory.y
+    });
 
-    if (error) throw error;
-    return data;
+    if (result.error) throw result.error;
+    return result.data[0];
   }
 
   async function updateMemory(memoryId, updates) {
-    const { data, error } = await supabase
-      .from('memories')
-      .update({
-        title: updates.title,
-        story: updates.story,
-        date: updates.date,
-        image_url: updates.image_url || undefined,
-        image_path: updates.image_path || undefined,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', memoryId)
-      .select()
-      .single();
+    var body = {
+      title: updates.title,
+      story: updates.story,
+      date: updates.date,
+      updated_at: new Date().toISOString()
+    };
+    if (updates.image_url !== undefined) body.image_url = updates.image_url;
+    if (updates.image_path !== undefined) body.image_path = updates.image_path;
 
-    if (error) throw error;
-    return data;
+    var result = await rest.update('memories', { id: 'eq.' + memoryId }, body);
+
+    if (result.error) throw result.error;
+    return result.data[0];
   }
 
   async function deleteMemory(memoryId, imagePath) {
     if (imagePath) {
-      await supabase.storage
-        .from('memory-images')
-        .remove([imagePath])
-        .catch(function() {});
+      // 用 fetch 直删 storage 文件
+      var token = null;
+      try {
+        var session = await App.supabase.auth.getSession();
+        if (session.data.session) token = session.data.session.access_token;
+      } catch (e) {}
+
+      var headers = { 'apikey': App.supabase.restUrl ? '' : '' };
+      // 使用 supabase 客户端删除（storage 操作比较少用，用客户端好了）
+      try {
+        await App.supabase.storage.from('memory-images').remove([imagePath]);
+      } catch (e) {}
     }
 
-    const { error } = await supabase
-      .from('memories')
-      .delete()
-      .eq('id', memoryId);
+    var result = await rest.remove('memories', { id: 'eq.' + memoryId });
 
-    if (error) throw error;
+    if (result.error) throw result.error;
   }
 
   window.App.memories = {

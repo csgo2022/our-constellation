@@ -3,7 +3,7 @@ window.App = window.App || {};
 (function() {
   'use strict';
 
-  const { supabase } = window.App;
+  var rest = window.App.rest;
 
   function compressImage(file, maxWidth, quality) {
     maxWidth = maxWidth || 800;
@@ -49,20 +49,11 @@ window.App = window.App || {};
     var fileName = timestamp + '-' + random + '.' + ext;
     var filePath = coupleId + '/' + fileName;
 
-    var uploadResult = await supabase.storage
-      .from('memory-images')
-      .upload(filePath, compressed, {
-        contentType: 'image/jpeg',
-        upsert: false
-      });
+    var result = await rest.upload('memory-images', filePath, compressed, 'image/jpeg');
+    if (result.error) throw result.error;
 
-    if (uploadResult.error) throw uploadResult.error;
-
-    var urlResult = supabase.storage
-      .from('memory-images')
-      .getPublicUrl(filePath);
-
-    return { url: urlResult.data.publicUrl, path: filePath };
+    var url = rest.getPublicUrl('memory-images', filePath);
+    return { url: url, path: filePath };
   }
 
   window.App.storage = {

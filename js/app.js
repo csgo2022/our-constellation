@@ -3,19 +3,19 @@ window.App = window.App || {};
 (function() {
   'use strict';
 
-  var supabase = window.App.supabase;
-  var currentUserId = null;
+  var rest = window.App.rest;
 
   // 检查 couple 里有多少人
   async function getMemberCount(coupleId) {
-    var result = await supabase
-      .from('couple_members')
-      .select('id', { count: 'exact' })
-      .eq('couple_id', coupleId);
-    return result.count || 0;
+    var result = await rest.select('couple_members', {
+      select: 'id',
+      couple_id: coupleId,
+      count: 'exact'
+    });
+    return result.data ? result.data.length : 0;
   }
 
-  // 确保用户有 couple（创建或加入），带重试
+  // 确保用户有 couple（创建或加入）
   async function ensureCouple(userId) {
     console.log('[ensureCouple] 开始, userId=', userId);
 
@@ -28,16 +28,16 @@ window.App = window.App || {};
 
     if (pendingInvite) {
       console.log('[ensureCouple] 尝试加入已有星空...');
-      var joinResult = await supabase
-        .from('couples')
-        .select('id')
-        .eq('invite_code', pendingInvite)
-        .limit(1);
+      var joinResult = await rest.select('couples', {
+        select: 'id',
+        invite_code: pendingInvite,
+        limit: '1'
+      });
 
       if (joinResult.data && joinResult.data.length > 0) {
         coupleId = joinResult.data[0].id;
         console.log('[ensureCouple] 找到 couple:', coupleId);
-        await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
+        await rest.insert('couple_members', { couple_id: coupleId, user_id: userId });
       }
       window.App._pendingInviteCode = null;
     }
@@ -46,49 +46,29 @@ window.App = window.App || {};
       var code = App.auth.generateInviteCode();
       console.log('[ensureCouple] 创建新星空, code:', code);
 
-      var coupleResult = await supabase
-        .from('couples')
-        .insert({ invite_code: code })
-        .select()
-        .single();
+      var coupleResult = await rest.insert('couples', { invite_code: code });
 
       console.log('[ensureCouple] insert couples 结果:', coupleResult.error ? coupleResult.error.message : '成功');
 
       if (coupleResult.error) {
         if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
           code = App.auth.generateInviteCode();
-          coupleResult = await supabase
-            .from('couples')
-            .insert({ invite_code: code })
-            .select()
-            .single();
-
+          coupleResult = await rest.insert('couples', { invite_code: code });
           if (coupleResult.error) throw new Error('创建星空失败，请重试');
         } else {
           throw new Error('创建星空失败：' + coupleResult.error.message);
         }
       }
 
-      coupleId = coupleResult.data.id;
+      coupleId = coupleResult.data[0].id;
       console.log('[ensureCouple] 新 coupleId:', coupleId);
 
-      await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
+      var memberResult = await rest.insert('couple_members', { couple_id: coupleId, user_id: userId });
+      if (memberResult.error) throw new Error('加入星空失败：' + memberResult.error.message);
       console.log('[ensureCouple] 成员关系已创建');
     }
 
     return coupleId;
-  }
-
-  // 带重试的插入
-  async function safeInsert(table, row, retries) {
-    retries = retries || 3;
-    for (var i = 0; i < retries; i++) {
-      var result = await supabase.from(table).insert(row);
-      if (!result.error) return;
-      console.warn('[safeInsert] 第' + (i+1) + '次失败:', result.error.message);
-      await new Promise(function(r) { setTimeout(r, 1000); });
-    }
-    throw new Error('数据库写入失败，请检查网络后重试');
   }
 
   async function loadMemories(userId) {
@@ -133,6 +113,8 @@ window.App = window.App || {};
   }
 
   window.App.loadMemories = loadMemories;
+
+  var currentUserId = null;
 
   async function enterMainView(userId) {
     currentUserId = userId;

@@ -113,7 +113,6 @@ window.App = window.App || {};
     submitBtn.disabled = true;
     submitBtn.textContent = '注册中...';
 
-    // 必须在 signUp 之前设，因为 onAuthStateChange 在 signUp 内部就触发
     window.App._pendingInviteCode = inviteCode || null;
 
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
@@ -126,7 +125,6 @@ window.App = window.App || {};
       return;
     }
 
-    // 暂存邀请码，由 loadMemories 统一处理 couple 创建/加入
     window.App._pendingInviteCode = inviteCode || null;
 
     submitBtn.disabled = false;
@@ -134,7 +132,6 @@ window.App = window.App || {};
   }
 
   async function handleLogout() {
-    // 先更新 UI，再调 API
     document.getElementById('authView').classList.remove('hidden');
     document.getElementById('mainView').classList.add('hidden');
     document.getElementById('settingsPanel').classList.add('hidden');
@@ -144,31 +141,29 @@ window.App = window.App || {};
       await supabase.auth.signOut();
     } catch (e) {
       console.error('退出登录失败:', e);
-      // API 调用失败也不影响本地退出
     }
   }
 
   async function getCoupleId(userId) {
-    const { data, error } = await supabase
-      .from('couple_members')
-      .select('couple_id')
-      .eq('user_id', userId)
-      .limit(1)
-      .single();
+    var result = await App.rest.select('couple_members', {
+      select: 'couple_id',
+      user_id: userId,
+      limit: '1'
+    });
 
-    if (error || !data) return null;
-    return data.couple_id;
+    if (result.error || !result.data || result.data.length === 0) return null;
+    return result.data[0].couple_id;
   }
 
   async function getInviteCode(coupleId) {
-    const { data, error } = await supabase
-      .from('couples')
-      .select('invite_code')
-      .eq('id', coupleId)
-      .single();
+    var result = await App.rest.select('couples', {
+      select: 'invite_code',
+      id: coupleId,
+      limit: '1'
+    });
 
-    if (error || !data) return '------';
-    return data.invite_code;
+    if (result.error || !result.data || result.data.length === 0) return '------';
+    return result.data[0].invite_code;
   }
 
   window.App.auth = {

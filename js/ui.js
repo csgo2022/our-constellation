@@ -182,8 +182,8 @@ window.App = window.App || {};
       return;
     }
 
-    var userResult = await App.supabase.auth.getUser();
-    var userId = userResult.data.user ? userResult.data.user.id : null;
+    var session = await App.supabase.auth.getSession();
+    var userId = session.data.session ? session.data.session.user.id : null;
     if (!userId) return;
 
     var saveBtn = document.getElementById('formSubmitBtn');
@@ -252,8 +252,8 @@ window.App = window.App || {};
   }
 
   async function updateInviteCode() {
-    var userResult = await App.supabase.auth.getUser();
-    var userId = userResult.data.user ? userResult.data.user.id : null;
+    var session = await App.supabase.auth.getSession();
+    var userId = session.data.session ? session.data.session.user.id : null;
     if (!userId) return;
     var coupleId = await App.auth.getCoupleId(userId);
     if (!coupleId) return;
