@@ -6,14 +6,11 @@ window.App = window.App || {};
   var rest = window.App.rest;
   var supabase = window.App.supabase;
 
-  // 检查 couple 里有多少人
+  // 检查 couple 里有多少人（通过 RPC 绕过 RLS，避免策略递归）
   async function getMemberCount(coupleId) {
-    var result = await rest.select('couple_members', {
-      select: 'id',
-      couple_id: coupleId,
-      count: 'exact'
-    });
-    return result.data ? result.data.length : 0;
+    var result = await rest.rpc('get_member_count', { p_couple_id: coupleId });
+    console.log('[getMemberCount] 结果:', result);
+    return (result.data !== null && result.data !== undefined) ? result.data : 0;
   }
 
   // 确保用户有 couple（创建或加入）
