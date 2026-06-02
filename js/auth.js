@@ -137,11 +137,13 @@ window.App = window.App || {};
     document.getElementById('settingsPanel').classList.add('hidden');
     showLogin();
 
-    try {
-      await supabase.auth.signOut();
-    } catch (e) {
+    // 清除 REST token 缓存
+    window.App.setRestToken(null);
+
+    // 不等待 signOut 响应，避免网络卡住阻塞 UI
+    supabase.auth.signOut().catch(function(e) {
       console.error('退出登录失败:', e);
-    }
+    });
   }
 
   async function getCoupleId(userId) {
