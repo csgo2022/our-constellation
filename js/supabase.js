@@ -12,6 +12,12 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 // ===== 直连 REST API（绕过 supabase-js 内部请求卡住问题） =====
 
+var cachedToken = null;
+
+function setRestToken(token) {
+  cachedToken = token;
+}
+
 function getRestUrl(path, query) {
   var url = SUPABASE_URL + '/rest/v1/' + path;
   if (query) {
@@ -27,22 +33,12 @@ function getRestUrl(path, query) {
 }
 
 async function restFetch(method, path, query, body) {
-  var token = null;
-  try {
-    var session = await supabaseClient.auth.getSession();
-    if (session.data.session) {
-      token = session.data.session.access_token;
-    }
-  } catch (e) {
-    // 忽略获取 session 失败
-  }
-
   var headers = {
     'apikey': SUPABASE_ANON_KEY,
     'Content-Type': 'application/json'
   };
-  if (token) {
-    headers['Authorization'] = 'Bearer ' + token;
+  if (cachedToken) {
+    headers['Authorization'] = 'Bearer ' + cachedToken;
   }
 
   // 用 Prefer 让 INSERT/UPDATE/PATCH/DELETE 返回数据
@@ -115,17 +111,11 @@ var rest = {
 
   // 上传文件
   upload: async function(bucket, filePath, blob, contentType) {
-    var token = null;
-    try {
-      var session = await supabaseClient.auth.getSession();
-      if (session.data.session) token = session.data.session.access_token;
-    } catch (e) {}
-
     var headers = {
       'apikey': SUPABASE_ANON_KEY,
       'Content-Type': contentType || 'image/jpeg'
     };
-    if (token) headers['Authorization'] = 'Bearer ' + token;
+    if (cachedToken) headers['Authorization'] = 'Bearer ' + cachedToken;
 
     var url = SUPABASE_URL + '/storage/v1/object/' + bucket + '/' + filePath;
     var controller = new AbortController();
@@ -162,3 +152,4 @@ var rest = {
 window.App = window.App || {};
 window.App.supabase = supabaseClient;
 window.App.rest = rest;
+window.App.setRestToken = setRestToken;

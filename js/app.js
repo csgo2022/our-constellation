@@ -148,6 +148,7 @@ window.App = window.App || {};
     console.log('[onAuthStateChange] event:', event, 'session:', !!session);
     if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
       if (session && session.user) {
+        window.App.setRestToken(session.access_token);
         enterMainView(session.user.id);
       }
     } else if (event === 'SIGNED_OUT') {
