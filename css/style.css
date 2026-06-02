@@ -549,4 +549,5 @@ header p {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ===== 通用 ===== */
+.hidden { display: none !important; }
 .pointer-events-none { pointer-events: none; }
