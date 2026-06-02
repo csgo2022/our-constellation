@@ -147,6 +147,37 @@ var rest = {
     return SUPABASE_URL + '/storage/v1/object/public/' + bucket + '/' + filePath;
   },
 
+  // 删除 storage 文件
+  removeFile: async function(bucket, filePath) {
+    var headers = {
+      'apikey': SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json'
+    };
+    if (cachedToken) headers['Authorization'] = 'Bearer ' + cachedToken;
+
+    var url = SUPABASE_URL + '/storage/v1/object/' + bucket + '/' + filePath;
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 10000);
+
+    try {
+      var response = await fetch(url, {
+        method: 'DELETE',
+        headers: headers,
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!response.ok) {
+        var errText = await response.text();
+        return { data: null, error: { message: errText || '删除失败' } };
+      }
+      var data = await response.json();
+      return { data: data, error: null };
+    } catch (e) {
+      clearTimeout(timeout);
+      return { data: null, error: { message: e.message || '删除失败' } };
+    }
+  },
+
   // 调用 RPC 函数（rpc('create_couple', { invite_code: 'xxx' })）
   rpc: async function(fnName, params) {
     return restFetch('POST', 'rpc/' + fnName, null, params);

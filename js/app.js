@@ -88,7 +88,7 @@ window.App = window.App || {};
       var memories = await App.memories.fetchMemories(coupleId);
       App.ui.renderMemoryStars(memories);
       showMainView();
-      await App.ui.updateInviteCode();
+      await App.ui.updateInviteCode(userId);
     }
     console.log('[loadMemories] 完成');
   }
@@ -116,6 +116,7 @@ window.App = window.App || {};
 
   async function enterMainView(userId) {
     currentUserId = userId;
+    window.App._userId = userId;
     console.log('[enterMainView] 开始, userId=', userId);
     document.getElementById('authView').classList.add('hidden');
     document.getElementById('waitingView').classList.add('hidden');
@@ -190,10 +191,8 @@ window.App = window.App || {};
     document.getElementById('checkPartnerBtn').addEventListener('click', async function() {
       document.getElementById('loadingOverlay').classList.remove('hidden');
       try {
-        var session = await supabase.auth.getSession();
-        var userId = session.data.session ? session.data.session.user.id : null;
-        if (userId) {
-          await loadMemories(userId);
+        if (currentUserId) {
+          await loadMemories(currentUserId);
         }
       } finally {
         document.getElementById('loadingOverlay').classList.add('hidden');

@@ -182,8 +182,7 @@ window.App = window.App || {};
       return;
     }
 
-    var session = await App.supabase.auth.getSession();
-    var userId = session.data.session ? session.data.session.user.id : null;
+    var userId = window.App._userId;
     if (!userId) return;
 
     var saveBtn = document.getElementById('formSubmitBtn');
@@ -251,9 +250,7 @@ window.App = window.App || {};
     panel.classList.toggle('hidden');
   }
 
-  async function updateInviteCode() {
-    var session = await App.supabase.auth.getSession();
-    var userId = session.data.session ? session.data.session.user.id : null;
+  async function updateInviteCode(userId) {
     if (!userId) return;
     var coupleId = await App.auth.getCoupleId(userId);
     if (!coupleId) return;

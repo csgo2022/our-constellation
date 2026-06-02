@@ -51,18 +51,7 @@ window.App = window.App || {};
 
   async function deleteMemory(memoryId, imagePath) {
     if (imagePath) {
-      // 用 fetch 直删 storage 文件
-      var token = null;
-      try {
-        var session = await App.supabase.auth.getSession();
-        if (session.data.session) token = session.data.session.access_token;
-      } catch (e) {}
-
-      var headers = { 'apikey': App.supabase.restUrl ? '' : '' };
-      // 使用 supabase 客户端删除（storage 操作比较少用，用客户端好了）
-      try {
-        await App.supabase.storage.from('memory-images').remove([imagePath]);
-      } catch (e) {}
+      await rest.removeFile('memory-images', imagePath).catch(function(e) {});
     }
 
     var result = await rest.remove('memories', { id: 'eq.' + memoryId });
