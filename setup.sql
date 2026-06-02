@@ -55,7 +55,9 @@ CREATE POLICY "insert_couple" ON couples
 -- couple_members
 DROP POLICY IF EXISTS "view_own_membership" ON couple_members;
 CREATE POLICY "view_own_membership" ON couple_members
-  FOR SELECT USING (user_id = auth.uid());
+  FOR SELECT USING (
+    couple_id IN (SELECT couple_id FROM couple_members WHERE user_id = auth.uid())
+  );
 
 DROP POLICY IF EXISTS "insert_membership" ON couple_members;
 CREATE POLICY "insert_membership" ON couple_members
