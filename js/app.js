@@ -5,6 +5,17 @@ window.App = window.App || {};
 
   var supabase = window.App.supabase;
 
+  // 带超时的 RPC 调用
+  async function rpcWithTimeout(fnName, params, ms) {
+    ms = ms || 8000;
+    return Promise.race([
+      supabase.rpc(fnName, params),
+      new Promise(function(_, reject) {
+        setTimeout(function() { reject(new Error('请求超时')); }, ms);
+      })
+    ]);
+  }
+
   // 检查 couple 里有多少人
   async function getMemberCount(coupleId) {
     var result = await supabase
@@ -22,31 +33,68 @@ window.App = window.App || {};
     var pendingInvite = window.App._pendingInviteCode;
 
     if (pendingInvite) {
-      var joinResult = await supabase.rpc('join_couple', { p_invite_code: pendingInvite });
-
-      if (!joinResult.error && joinResult.data && joinResult.data.length > 0) {
-        coupleId = joinResult.data[0].couple_id;
+      // 优先用 RPC 加入
+      try {
+        var joinResult = await rpcWithTimeout('join_couple', { p_invite_code: pendingInvite });
+        if (!joinResult.error && joinResult.data && joinResult.data.length > 0) {
+          coupleId = joinResult.data[0].couple_id;
+        }
+      } catch (e) {
+        // RPC 失败，回退到直插
+        var joinQuery = await supabase
+          .from('couples')
+          .select('id')
+          .eq('invite_code', pendingInvite)
+          .limit(1);
+        if (joinQuery.data && joinQuery.data.length > 0) {
+          coupleId = joinQuery.data[0].id;
+          await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
+        }
       }
       window.App._pendingInviteCode = null;
     }
 
     if (!coupleId) {
       var code = App.auth.generateInviteCode();
-      var coupleResult = await supabase.rpc('create_couple', { invite_code: code });
 
-      if (coupleResult.error) {
-        // 重试一次（邀请码冲突）
-        if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
-          code = App.auth.generateInviteCode();
-          coupleResult = await supabase.rpc('create_couple', { invite_code: code });
-
-          if (coupleResult.error) throw new Error('创建星空失败，请重试');
-        } else {
-          throw new Error('创建星空失败：' + coupleResult.error.message);
-        }
+      // 先尝试 RPC
+      var coupleResult = null;
+      try {
+        coupleResult = await rpcWithTimeout('create_couple', { invite_code: code });
+      } catch (e) {
+        // RPC 失败，回退到直插
       }
 
-      coupleId = coupleResult.data[0].id;
+      // RPC 成功
+      if (coupleResult && !coupleResult.error && coupleResult.data && coupleResult.data.length > 0) {
+        coupleId = coupleResult.data[0].id;
+      }
+
+      // RPC 失败，回退到直插
+      if (!coupleId) {
+        coupleResult = await supabase
+          .from('couples')
+          .insert({ invite_code: code })
+          .select()
+          .single();
+
+        if (coupleResult.error) {
+          if (coupleResult.error.message && coupleResult.error.message.includes('invite_code')) {
+            code = App.auth.generateInviteCode();
+            coupleResult = await supabase
+              .from('couples')
+              .insert({ invite_code: code })
+              .select()
+              .single();
+
+            if (coupleResult.error) throw new Error('创建星空失败，请重试');
+          } else {
+            throw new Error('创建星空失败：' + coupleResult.error.message);
+          }
+        }
+        coupleId = coupleResult.data.id;
+      }
+
       await safeInsert('couple_members', { couple_id: coupleId, user_id: userId });
     }
 
@@ -59,7 +107,6 @@ window.App = window.App || {};
     for (var i = 0; i < retries; i++) {
       var result = await supabase.from(table).insert(row);
       if (!result.error) return;
-      // 等待后重试
       await new Promise(function(r) { setTimeout(r, 1000); });
     }
     throw new Error('数据库写入失败，请检查网络后重试');
@@ -105,7 +152,6 @@ window.App = window.App || {};
   window.App.loadMemories = loadMemories;
 
   async function enterMainView() {
-    // 先隐藏登录页和等待页
     document.getElementById('authView').classList.add('hidden');
     document.getElementById('waitingView').classList.add('hidden');
     document.getElementById('loadingOverlay').classList.remove('hidden');
@@ -113,7 +159,7 @@ window.App = window.App || {};
     try {
       await loadMemories();
     } catch (err) {
-      // 加载失败，显示错误信息并回到登录页
+      console.error('loadMemories 失败:', err);
       alert('加载失败：' + (err.message || '未知错误'));
       document.getElementById('authView').classList.remove('hidden');
       document.getElementById('mainView').classList.add('hidden');
